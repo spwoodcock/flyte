@@ -1,0 +1,78 @@
+{{- if not (include "flyte-binary.configuration.externalConfiguration" .) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flyte-binary.configuration.configMapName" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "flyte-binary.labels" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- tpl ( .Values.commonLabels | toYaml ) . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.configuration.labels }}
+    {{- tpl ( .Values.configuration.labels | toYaml ) . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- if .Values.commonAnnotations }}
+    {{- tpl ( .Values.commonAnnotations | toYaml ) . | nindent 4 }}
+    {{- end }}
+    {{- if .Values.configuration.annotations }}
+    {{- tpl ( .Values.configuration.annotations | toYaml ) . | nindent 4 }}
+    {{- end }}
+data:
+  config.yaml: |
+    server:
+      # Use port 8090 as per user request/deployment spec
+      port: 8090
+      host: "0.0.0.0"
+
+    database:
+      postgres:
+        {{- with .Values.configuration.database }}
+        username: {{ .username }}
+        host: {{ tpl .host $ }}
+        port: {{ .port }}
+        dbname: {{ .dbname }}
+        options: {{ .options | quote }}
+        {{- if .passwordPath }}
+        passwordPath: {{ .passwordPath }}
+        {{- end }}
+        {{- end }}
+
+    executor:
+      healthProbePort: 8081
+      # Defines where the operator looks for resources
+      kubernetes:
+        namespace: {{ default .Release.Namespace .Values.executor.namespace | quote }}
+
+    {{- if .Values.configuration.storage }}
+    storage:
+      type: stow
+      stow:
+        {{- with .Values.configuration.storage }}
+        {{- if eq "s3" .provider }}
+        {{- with .providerConfig.s3 }}
+        kind: s3
+        config:
+          region: {{ required "Region required for S3 storage provider" .region }}
+          disable_ssl: {{ .disableSSL }}
+          v2_signing: {{ .v2Signing }}
+          {{- if .endpoint }}
+          endpoint: {{ tpl .endpoint $ }}
+          {{- end }}
+          {{- if eq "iam" .authType }}
+          auth_type: iam
+          {{- else if eq "accesskey" .authType }}
+          auth_type: accesskey
+          {{- else }}
+          {{- printf "Invalid value for S3 storage provider authentication type. Expected one of (iam, accesskey), but got: %s" .authType | fail }}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+        container: {{ required "Metadata container required" .metadataContainer }}
+        {{- end }}
+    {{- end }}
+    
+    {{- if .Values.configuration.inline }}
+    {{- tpl ( .Values.configuration.inline | toYaml ) . | nindent 4 }}
+    {{- end }}
+{{- end }}
